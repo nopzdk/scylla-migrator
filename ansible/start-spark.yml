@@ -1,0 +1,17 @@
+---
+
+- name: Start spark cluster
+  hosts: spark
+  gather_facts: false
+  vars:
+    worker_core: 4
+    worker_mem: 16
+  tasks:
+
+    - name: start master
+      hosts: master
+      shell: ./scylla-migrator/start-master.sh
+
+    - name: start workers
+      hosts: workers
+      shell: ./start-worker.sh

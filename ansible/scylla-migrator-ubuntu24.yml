@@ -1,0 +1,176 @@
+---
+
+- name: Install spark on scylla-migrator servers
+  hosts: spark
+  vars:
+    home_dir: /home/ubuntu
+    spark_home: /opt/spark
+    spark_version: 3.5.3
+
+  tasks: 
+    - name: Install openjdk-17-jre
+      become: true
+      ansible.builtin.apt:
+        name: openjdk-17-jre
+        update_cache: yes
+
+    - name: install cqlsh
+      become: true
+      community.general.snap:
+        name: cqlsh
+        classic: false
+        channel: stable
+
+    - name: install aws-cli v2
+      become: true
+      community.general.snap:
+        name: aws-cli
+        channel: v2/stable
+        classic: true
+
+          #    - name: Download spark locally
+          #      delegate_to: localhost
+          #      get_url: 
+          #        url: https://archive.apache.org/dist/spark/spark-{{ spark_version }}/spark-{{ spark_version }}-bin-hadoop3-scala2.13.tgz
+          #        dest: "./spark-{{ spark_version }}-bin-hadoop3-scala2.13.tgz"
+
+          #    - name: Copy spark to master and workers
+          #      ansible.builtin.copy:
+          #        src: "./files/spark-{{ spark_version }}-bin-hadoop3-scala2.13.tgz"
+          #        dest: "{{ home_dir }}/spark-{{ spark_version }}-bin-hadoop3-scala2.13.tgz"
+
+    - name: Extract spark
+      ansible.builtin.unarchive:
+        src: "./files/spark-{{ spark_version }}-bin-hadoop3-scala2.13.tgz"
+        dest: "{{ home_dir }}"
+        remote_src: false
+
+    - name: Empty spark home
+      become: true
+      ansible.builtin.file:
+        state: absent
+        path: "{{ spark_home }}"
+
+    - name: Move spark to /opt/spark
+      become: true
+      command: "mv {{ home_dir }}/spark-{{ spark_version }}-bin-hadoop3-scala2.13 {{ spark_home }}"
+
+        #    - name: Set JAVA_HOME
+        #      ansible.builtin.lineinfile:
+        #        path: "{{ home_dir }}/.profile"
+        #        regexp: '^JAVA_HOME='
+        #        line: export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+
+        #    - name: Add JAVA_HOME to PATH
+        #      ansible.builtin.lineinfile:
+        #        path: "{{ home_dir }}/.profile"
+        #        regexp: '^:$JAVA_HOME'
+        #        line: export PATH=$PATH:$JAVA_HOME
+
+    - name: Set SPARK_HOME
+      ansible.builtin.lineinfile:
+        path: "{{ home_dir }}/.profile"
+        regexp: '^:SPARK_HOME'
+        line: "export SPARK_HOME={{ spark_home }}"
+
+    - name: Add SPARK_HOME/bin to path
+      ansible.builtin.lineinfile:
+        path: "{{ home_dir }}/.profile"
+        regexp: '^:$SPARK_HOME/bin'
+        line: export PATH=$PATH:$SPARK_HOME/bin
+
+    - name: Add SPARK_HOME/sbin to path
+      ansible.builtin.lineinfile:
+        path: "{{ home_dir }}/.profile"
+        regexp: '^:$SPARK_HOME/sbin'
+        line: export PATH=$PATH:$SPARK_HOME/sbin
+
+    - name: Make sure worker file exists
+      become: true
+      ansible.builtin.file:
+        state: touch
+        path: "{{ spark_home }}/conf/workers"
+
+    - name: Add spark nodes to workers file
+      lineinfile:
+        dest: "{{ spark_home }}/conf/workers"
+        state: present
+        line:  "{{ hostvars[item].ansible_host }}"
+      with_items: "{{ groups['spark'] }}"
+
+    - name: copy worker start/stop convenience scripts
+      copy:
+        src: "{{ item }}"
+        dest: "{{ home_dir }}"
+        mode: 0755
+      when: inventory_hostname in groups['worker']
+      with_items:
+        - start-worker.sh
+        - stop-worker.sh
+
+    - name: copy template
+      template:
+        src: spark-env-worker-sample
+        dest: "{{ home_dir }}"
+      when: inventory_hostname in groups['worker']
+
+    - name: rename spark-env
+      shell: mv spark-env-worker-sample spark-env
+      when: inventory_hostname in groups['worker']
+
+- name: Install scylla migrator on master
+  hosts: master
+  vars:
+    home_dir: /home/ubuntu
+    spark_home: /opt/spark
+      #  environment:
+    #    JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+    #    SPARK_HOME: /opt/spark
+    #    PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ubuntu/.local/share/coursier/bin:/usr/lib/jvm/java-17-openjdk-amd64:/opt/spark/bin:/opt/spark/sbin"
+
+  tasks:
+    - name: Create scylla-migrator directory
+      ansible.builtin.file:
+        path: "{{ home_dir }}/scylla-migrator"
+        state: directory
+
+    - name: copy master start/stop convenience scripts
+      copy:
+        src: "{{ item }}"
+        dest: "{{ home_dir }}/scylla-migrator"
+        mode: 0755
+      with_items:
+        - start-spark.sh
+        - stop-spark.sh
+        - start-worker.sh
+        - stop-worker.sh
+        - config.dynamodb.yml
+    
+    - name: copy template
+      template:
+        src: "{{ item }}"
+        dest: "{{ home_dir }}/scylla-migrator"
+        mode: 0755
+      with_items:
+        - spark-env-master-sample
+        - submit-alternator-job.sh
+        - submit-cql-job.sh
+        - submit-cql-job-validator.sh
+
+    - name: rename spark-env
+      shell: cd "{{ home_dir }}/scylla-migrator" && mv spark-env-master-sample spark-env
+
+    - name: change file permissions - spark-env and config.dynamodb.yml
+      ansible.builtin.file:
+        mode: 0655
+        state: file
+        path: "{{ home_dir }}/scylla-migrator/{{ item }}"
+      with_items:
+        - spark-env
+        - config.dynamodb.yml
+
+    - name: download scylla-migrator
+      get_url:
+        url: https://github.com/scylladb/scylla-migrator/releases/latest/download/scylla-migrator-assembly.jar
+        dest: "{{ home_dir }}/scylla-migrator/scylla-migrator-assembly.jar"
+...
