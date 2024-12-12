@@ -6,8 +6,8 @@
 
 export SPARK_MASTER_HOST={{ hostvars.spark_master.ansible_default_ipv4.address }}
 
-export SLAVESIZE=""
+export WORKERSIZE=""
 # Optionally, limit the resources available to the Spark worker by uncommenting the following lines
 #export MAX_CORES=2                  # max number of cores to use on the machine
 #export MAX_MEMORY=4G                # max amount of memory to use on the machine
-#export SLAVESIZE="--cores $MAX_CORES --memory $MAX_MEMORY"
+#export WORKERSIZE="--cores $MAX_CORES --memory $MAX_MEMORY"

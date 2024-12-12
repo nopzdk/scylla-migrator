@@ -29,12 +29,13 @@
         - openjdk-17-jre
           #        - openjdk-17-jdk
           #        - unzip
-        - python3-pip
+          #- python3-full
+          #        - python3.12-venv
 
-    - name: install cqlsh
-      ansible.builtin.pip:
-        name: scylla-cqlsh
-        state: present
+          #- name:scylla-cqlsh install cqlsh
+          #ansible.builtin.pip:
+          # name: scylla-cqlsh
+          #state: present
 
           #    - name: Check that awscliv2.zip exists
           #      stat:
@@ -71,13 +72,20 @@
           #        state: absent
           #        path: "{{ home_dir }}/aws"
           #
+    - name: install cqlsh
+      become: true
+      community.general.snap:
+        name: cqlsh
+        classic: false
+        channel: stable
+
 
     - name: install aws-cli v2
       become: true
       community.general.snap:
         name: aws-cli
-        classic: true
         channel: v2/stable
+        classic: true
 
 
     - name: Download spark
@@ -101,17 +109,17 @@
       become: true
       command: "mv {{ home_dir }}/spark-{{ spark_version }}-bin-hadoop3-scala2.13 {{ spark_home }}"
 
-        #    - name: Set JAVA_HOME
-        #      ansible.builtin.lineinfile:
-        #        path: "{{ home_dir }}/.profile"
-        #        regexp: '^JAVA_HOME='
-        #        line: export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+    - name: Set JAVA_HOME
+      ansible.builtin.lineinfile:
+        path: "{{ home_dir }}/.profile"
+        regexp: '^JAVA_HOME='
+        line: export JAVA_HOME=/usr/lib/jvm/java-17-openjdk-arm64
 
-        #    - name: Add JAVA_HOME to PATH
-        #      ansible.builtin.lineinfile:
-        #        path: "{{ home_dir }}/.profile"
-        #        regexp: '^:$JAVA_HOME'
-        #        line: export PATH=$PATH:$JAVA_HOME
+    - name: Add JAVA_HOME to PATH
+      ansible.builtin.lineinfile:
+        path: "{{ home_dir }}/.profile"
+        regexp: '^:$JAVA_HOME'
+        line: export PATH=$PATH:$JAVA_HOME
 
     - name: Set SPARK_HOME
       ansible.builtin.lineinfile:
@@ -131,15 +139,15 @@
         regexp: '^:$SPARK_HOME/sbin'
         line: export PATH=$PATH:$SPARK_HOME/sbin
 
-    - name: Make sure slaves file exists
+    - name: Make sure worker file exists
       become: true
       ansible.builtin.file:
         state: touch
-        path: "{{ spark_home }}/conf/slaves"
+        path: "{{ spark_home }}/conf/workers"
 
-    - name: Add spark nodes to slaves file
+    - name: Add spark nodes to workers file
       lineinfile:
-        dest: "{{ spark_home }}/conf/slaves"
+        dest: "{{ spark_home }}/conf/workers"
         state: present
         line:  "{{ hostvars[item].ansible_host }}"
       with_items: "{{ groups['spark'] }}"
@@ -151,8 +159,8 @@
         mode: 0755
       when: inventory_hostname in groups['worker']
       with_items:
-        - start-slave.sh
-        - stop-slave.sh
+        - start-worker.sh
+        - stop-worker.sh
 
     - name: copy template
       template:
@@ -170,9 +178,9 @@
     home_dir: /home/ubuntu
     spark_home: /opt/spark
   environment:
-    JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+    JAVA_HOME: /usr/lib/jvm/java-17-openjdk-arm64
     SPARK_HOME: /opt/spark
-    PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ubuntu/.local/share/coursier/bin:/usr/lib/jvm/java-17-openjdk-amd64:/opt/spark/bin:/opt/spark/sbin"
+    PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/ubuntu/.local/share/coursier/bin:/usr/lib/jvm/java-17-openjdk-arm64:/opt/spark/bin:/opt/spark/sbin"
 
   tasks:
     - name: Create scylla-migrator directory
@@ -188,8 +196,8 @@
       with_items:
         - start-spark.sh
         - stop-spark.sh
-        - start-slave.sh
-        - stop-slave.sh
+        - start-worker.sh
+        - stop-worker.sh
         - config.dynamodb.yml
     
     - name: copy template
